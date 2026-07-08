@@ -27,7 +27,7 @@ export async function GET() {
     const profile = profileMap.get(row.fellow_id)
     return {
       id: row.fellow_id,
-      name: row.display_name,
+      name: profile?.display_name || row.display_name,
       scores: row.scores,
       profile: profile ? {
         bio: profile.bio,

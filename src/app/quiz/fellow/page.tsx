@@ -5,8 +5,10 @@ import { useRouter } from 'next/navigation'
 import { FELLOWS } from '@/lib/fellows'
 import { FELLOW_QUESTIONS } from '@/lib/questions'
 import { calculateScores } from '@/lib/scoring'
+import RadarChart from '@/components/RadarChart'
 import QuizCard from '@/components/QuizCard'
-import type { Fellow, Question } from '@/lib/types'
+import type { Fellow, Question, PersonalityScores, Axis } from '@/lib/types'
+import { AXIS_LABELS, AXIS_COLORS } from '@/lib/types'
 
 const SOCIAL_FIELDS = [
   { key: 'twitter', label: 'X / Twitter', placeholder: 'handle (without @)' },
@@ -18,13 +20,28 @@ const SOCIAL_FIELDS = [
   { key: 'bandcamp', label: 'Bandcamp / Music', placeholder: 'URL' },
 ]
 
-type Stage = 'select' | 'profile' | 'quiz' | 'submitting'
+const AXES: Axis[] = [
+  'openness', 'conscientiousness', 'extraversion',
+  'agreeableness', 'stability', 'doomer_accel', 'chaos_order',
+]
+
+type Stage = 'passcode' | 'select' | 'profile' | 'quiz' | 'submitting' | 'existing'
+
+interface ExistingResult {
+  id: string
+  scores: PersonalityScores
+  created_at: string
+}
 
 export default function FellowQuizPage() {
   const router = useRouter()
   const fileInputRef = useRef<HTMLInputElement>(null)
 
-  const [stage, setStage] = useState<Stage>('select')
+  const [stage, setStage] = useState<Stage>('passcode')
+  const [passcode, setPasscode] = useState('')
+  const [passcodeError, setPasscodeError] = useState(false)
+  const [verifying, setVerifying] = useState(false)
+
   const [selectedFellow, setSelectedFellow] = useState<Fellow | null>(null)
   const [avatarPreview, setAvatarPreview] = useState<string | null>(null)
   const [avatarFile, setAvatarFile] = useState<File | null>(null)
@@ -35,9 +52,13 @@ export default function FellowQuizPage() {
   }, [])
 
   // Profile fields
+  const [displayName, setDisplayName] = useState('')
   const [bio, setBio] = useState('')
   const [socials, setSocials] = useState<Record<string, string>>({})
   const [profileLoaded, setProfileLoaded] = useState(false)
+
+  // Existing result
+  const [existingResult, setExistingResult] = useState<ExistingResult | null>(null)
 
   // Quiz state
   const questions: Question[] = FELLOW_QUESTIONS
@@ -50,11 +71,41 @@ export default function FellowQuizPage() {
   const allAnswered = questions.every(q => answers[q.id] != null)
   const isLastQuestion = currentIndex === questions.length - 1
 
-  // Load existing profile from DB when fellow is selected
+  // Check sessionStorage for existing passcode verification
+  useEffect(() => {
+    if (sessionStorage.getItem('pdku-fellow-verified') === 'true') {
+      setStage('select')
+    }
+  }, [])
+
+  async function handlePasscode(e: React.FormEvent) {
+    e.preventDefault()
+    setVerifying(true)
+    setPasscodeError(false)
+    try {
+      const res = await fetch('/api/verify-fellow', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ passcode }),
+      })
+      const data = await res.json()
+      if (data.ok) {
+        sessionStorage.setItem('pdku-fellow-verified', 'true')
+        setStage('select')
+      } else {
+        setPasscodeError(true)
+      }
+    } catch {
+      setPasscodeError(true)
+    }
+    setVerifying(false)
+  }
+
+  // Load existing profile + check for existing quiz result
   useEffect(() => {
     if (!selectedFellow || profileLoaded) return
 
-    // Pre-fill from static data
+    setDisplayName(selectedFellow.name)
     setBio(selectedFellow.bio || '')
     const staticSocials: Record<string, string> = {}
     for (const [k, v] of Object.entries(selectedFellow.socials)) {
@@ -62,11 +113,12 @@ export default function FellowQuizPage() {
     }
     setSocials(staticSocials)
 
-    // Then check if they have a saved profile that overrides
+    // Check saved profile
     fetch(`/api/fellow-profile?id=${selectedFellow.id}`)
       .then(res => res.json())
       .then(data => {
         if (data.profile) {
+          if (data.profile.display_name) setDisplayName(data.profile.display_name)
           if (data.profile.bio) setBio(data.profile.bio)
           if (data.profile.socials) {
             setSocials(prev => ({ ...prev, ...data.profile.socials }))
@@ -76,6 +128,17 @@ export default function FellowQuizPage() {
         setProfileLoaded(true)
       })
       .catch(() => setProfileLoaded(true))
+
+    // Check for existing quiz result
+    fetch(`/api/fellows`)
+      .then(res => res.json())
+      .then(data => {
+        const existing = data.fellows?.find((f: { id: string }) => f.id === selectedFellow.id)
+        if (existing?.scores) {
+          setExistingResult({ id: existing.id, scores: existing.scores, created_at: '' })
+        }
+      })
+      .catch(() => {})
   }, [selectedFellow, profileLoaded])
 
   function updateSocial(key: string, value: string) {
@@ -103,7 +166,6 @@ export default function FellowQuizPage() {
 
     let avatarUrl: string | undefined
 
-    // Upload photo if changed
     if (avatarFile) {
       const formData = new FormData()
       formData.append('file', avatarFile)
@@ -112,30 +174,30 @@ export default function FellowQuizPage() {
         const res = await fetch('/api/upload-avatar', { method: 'POST', body: formData })
         const data = await res.json()
         if (data.url) avatarUrl = data.url
-      } catch {
-        // continue anyway
-      }
+      } catch {}
     }
 
-    // Save profile
     try {
       await fetch('/api/fellow-profile', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           fellow_id: selectedFellow.id,
-          display_name: selectedFellow.name,
+          display_name: displayName,
           bio,
           socials,
           avatar_url: avatarUrl || avatarPreview || selectedFellow.photo_url || null,
         }),
       })
-    } catch {
-      // continue anyway
-    }
+    } catch {}
 
     setUploading(false)
-    setStage('quiz')
+
+    if (existingResult) {
+      setStage('existing')
+    } else {
+      setStage('quiz')
+    }
   }
 
   const goToNext = useCallback((questionId: string, value: number) => {
@@ -171,26 +233,59 @@ export default function FellowQuizPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           id: resultId,
-          display_name: selectedFellow.name,
+          display_name: displayName,
           scores,
           answers,
           is_fellow: true,
           fellow_id: selectedFellow.id,
         }),
       })
-    } catch {
-      // fallback
-    }
+    } catch {}
 
     localStorage.setItem(`pdku-result-${resultId}`, JSON.stringify({
       id: resultId,
-      display_name: selectedFellow.name,
+      display_name: displayName,
       scores,
       is_fellow: true,
       fellow_id: selectedFellow.id,
     }))
 
     router.push(`/results/${resultId}`)
+  }
+
+  // ── Stage: Passcode ──
+  if (stage === 'passcode') {
+    return (
+      <div className="min-h-[80vh] flex items-center justify-center">
+        <form onSubmit={handlePasscode} className="glass-card p-8 sm:p-12 max-w-sm w-full text-center fade-in-up">
+          <h2 className="font-display font-bold text-3xl neon-pink mb-2">
+            fellows only
+          </h2>
+          <p className="text-xs text-white/40 mb-8">
+            enter the passcode to access the fellow quiz
+          </p>
+
+          <input
+            type="text"
+            value={passcode}
+            onChange={e => { setPasscode(e.target.value); setPasscodeError(false) }}
+            placeholder="passcode"
+            autoFocus
+            className={`w-full px-4 py-3 bg-white/[0.04] border rounded-xl text-white text-sm font-mono text-center tracking-widest placeholder:text-white/20 focus:outline-none transition-all mb-4 ${
+              passcodeError ? 'border-red-500/50 focus:border-red-500/80' : 'border-white/10 focus:border-neon-cyan/50 focus:shadow-[0_0_15px_rgba(31,196,255,0.1)]'
+            }`}
+          />
+
+          {passcodeError && (
+            <p className="text-xs text-red-400 mb-4">wrong passcode</p>
+          )}
+
+          <button type="submit" disabled={verifying || !passcode.trim()} className="glow-btn w-full !block text-center">
+            {verifying ? 'Checking...' : 'Enter'}
+          </button>
+        </form>
+      </div>
+    )
   }
 
   // ── Stage: Select yourself ──
@@ -216,6 +311,7 @@ export default function FellowQuizPage() {
               onClick={() => {
                 setSelectedFellow(f)
                 setProfileLoaded(false)
+                setExistingResult(null)
                 setStage('profile')
               }}
               className="glass-card p-4 text-center group cursor-pointer text-left hover:!border-neon-cyan/40"
@@ -245,20 +341,20 @@ export default function FellowQuizPage() {
       <div className="min-h-[80vh] flex items-center justify-center py-20">
         <div className="glass-card p-8 sm:p-10 max-w-lg w-full fade-in-up">
           <h2 className="font-display font-bold text-2xl neon-cyan mb-1">
-            hey, {selectedFellow.name}
+            hey, {displayName}
           </h2>
           <p className="text-xs text-white/40 mb-8">
-            review your profile before taking the quiz. edit anything you want // this is what people see when they match with you.
+            review your profile // this is what people see when they match with you. edit anything you want.
           </p>
 
-          {/* Photo */}
-          <div className="flex items-center gap-5 mb-8">
+          {/* Photo + name */}
+          <div className="flex items-center gap-5 mb-6">
             <div className="w-20 h-20 rounded-xl overflow-hidden border-2 border-neon-cyan/30 bg-white/5 relative group shrink-0">
               {displayPhoto ? (
-                <img src={displayPhoto} alt={selectedFellow.name} className="w-full h-full object-cover" />
+                <img src={displayPhoto} alt={displayName} className="w-full h-full object-cover" />
               ) : (
                 <div className="w-full h-full flex items-center justify-center text-2xl font-bold text-white/15 font-mono">
-                  {selectedFellow.name.charAt(0)}
+                  {displayName.charAt(0)}
                 </div>
               )}
               <button
@@ -269,12 +365,11 @@ export default function FellowQuizPage() {
               </button>
             </div>
             <div className="flex-1">
-              <div className="font-bold text-sm mb-1">{selectedFellow.name}</div>
               <button
                 onClick={() => fileInputRef.current?.click()}
                 className="text-[10px] font-mono uppercase tracking-wider text-neon-pink/60 hover:text-neon-pink transition-colors"
               >
-                {displayPhoto ? 'upload different photo' : 'upload a photo'}
+                {displayPhoto ? 'change photo' : 'upload a photo'}
               </button>
             </div>
           </div>
@@ -287,8 +382,22 @@ export default function FellowQuizPage() {
             className="hidden"
           />
 
+          {/* Screen name */}
+          <div className="mb-5">
+            <label className="block text-[10px] font-mono uppercase tracking-[0.2em] text-white/30 mb-2">
+              screen name
+            </label>
+            <input
+              type="text"
+              value={displayName}
+              onChange={e => setDisplayName(e.target.value)}
+              placeholder="your display name"
+              className="w-full px-4 py-3 bg-white/[0.04] border border-white/10 rounded-xl text-white text-sm font-light placeholder:text-white/20 focus:outline-none focus:border-neon-cyan/50 focus:shadow-[0_0_15px_rgba(31,196,255,0.1)] transition-all"
+            />
+          </div>
+
           {/* Bio */}
-          <div className="mb-6">
+          <div className="mb-5">
             <label className="block text-[10px] font-mono uppercase tracking-[0.2em] text-white/30 mb-2">
               your intro
             </label>
@@ -327,10 +436,10 @@ export default function FellowQuizPage() {
           {/* Actions */}
           <button
             onClick={handleProfileConfirm}
-            disabled={uploading}
+            disabled={uploading || !displayName.trim()}
             className="glow-btn w-full !block text-center"
           >
-            {uploading ? 'Saving...' : 'Save & Start Quiz'}
+            {uploading ? 'Saving...' : 'Save Profile & Continue'}
           </button>
 
           <button
@@ -344,6 +453,68 @@ export default function FellowQuizPage() {
           >
             ← that&apos;s not me
           </button>
+        </div>
+      </div>
+    )
+  }
+
+  // ── Stage: Existing result ──
+  if (stage === 'existing' && existingResult && selectedFellow) {
+    return (
+      <div className="min-h-[80vh] flex items-center justify-center py-20">
+        <div className="max-w-lg w-full fade-in-up">
+          <div className="text-center mb-8">
+            <div className="font-mono text-xs tracking-[0.25em] uppercase text-neon-teal/60 mb-4">
+              welcome back
+            </div>
+            <h2 className="font-display font-bold text-3xl neon-cyan mb-2">
+              {displayName}
+            </h2>
+            <p className="text-sm text-white/40">
+              you&apos;ve already taken the quiz // here are your results
+            </p>
+          </div>
+
+          <div className="glass-card p-8 mb-8">
+            <RadarChart scores={existingResult.scores} size={300} />
+            <div className="grid grid-cols-2 gap-3 mt-6">
+              {AXES.map(axis => {
+                const score = existingResult.scores[axis]
+                return (
+                  <div key={axis} className="flex items-center justify-between text-xs px-2 py-1.5">
+                    <span className="font-mono text-white/30">{AXIS_LABELS[axis][1]}</span>
+                    <span className="font-mono font-bold" style={{ color: AXIS_COLORS[axis] }}>
+                      {score}
+                    </span>
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+
+          <div className="flex flex-col gap-3 items-center">
+            <button
+              onClick={() => {
+                setExistingResult(null)
+                setStage('quiz')
+              }}
+              className="glow-btn glow-btn-pink"
+            >
+              Retake the Quiz
+            </button>
+            <button
+              onClick={() => {
+                setStage('profile')
+              }}
+              className="text-xs font-mono uppercase tracking-wider text-white/30 hover:text-neon-cyan transition-colors"
+            >
+              ← edit profile
+            </button>
+          </div>
+
+          <p className="text-[10px] font-mono text-white/15 mt-6 text-center">
+            profile changes are saved // retaking overwrites your previous answers
+          </p>
         </div>
       </div>
     )
@@ -366,11 +537,10 @@ export default function FellowQuizPage() {
     <div className="min-h-[80vh] flex flex-col items-center justify-center py-20">
       <div className="text-center mb-4">
         <span className="inline-block px-3 py-1 text-[10px] font-mono uppercase tracking-widest bg-neon-pink/10 text-neon-pink border border-neon-pink/20 rounded-full">
-          fellow quiz // {selectedFellow?.name}
+          fellow quiz // {displayName}
         </span>
       </div>
 
-      {/* Progress bar */}
       <div className="w-full max-w-2xl mb-12">
         <div className="progress-track">
           <div className="progress-fill" style={{ width: `${progress}%` }} />
@@ -381,7 +551,6 @@ export default function FellowQuizPage() {
         </div>
       </div>
 
-      {/* Question card */}
       {currentQuestion && (
         <QuizCard
           key={currentQuestion.id}
@@ -394,7 +563,6 @@ export default function FellowQuizPage() {
         />
       )}
 
-      {/* Navigation */}
       <div className="flex items-center gap-4 mt-8">
         <button
           onClick={goToPrev}
