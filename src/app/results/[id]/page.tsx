@@ -51,17 +51,23 @@ function SocialLinks({ socials }: { socials: Record<string, string | undefined> 
 }
 
 function MatchCard({ fellow, matchPercent }: { fellow: FellowWithScores; matchPercent: number }) {
-  const fellowData = FELLOWS.find(f => f.id === fellow.id)
-  if (!fellowData) return null
+  const staticData = FELLOWS.find(f => f.id === fellow.id)
+  if (!staticData) return null
+
+  const photo = fellow.profile?.avatar_url || staticData.photo_url
+  const displayBio = fellow.profile?.bio || staticData.bio
+  const displaySocials = fellow.profile?.socials
+    ? { ...staticData.socials, ...fellow.profile.socials }
+    : staticData.socials
 
   return (
     <div className="glass-card p-8 sm:p-10 text-center" style={{ borderColor: 'rgba(255,31,184,0.15)' }}>
       <div className="w-24 h-24 mx-auto rounded-xl overflow-hidden border-2 border-neon-pink/30 bg-white/5 mb-5">
-        {fellowData.photo_url ? (
-          <img src={fellowData.photo_url} alt={fellowData.name} className="w-full h-full object-cover" />
+        {photo ? (
+          <img src={photo} alt={staticData.name} className="w-full h-full object-cover" />
         ) : (
           <div className="w-full h-full flex items-center justify-center text-3xl font-bold text-white/15 font-mono">
-            {fellowData.name.charAt(0)}
+            {staticData.name.charAt(0)}
           </div>
         )}
       </div>
@@ -71,12 +77,12 @@ function MatchCard({ fellow, matchPercent }: { fellow: FellowWithScores; matchPe
         <span className="text-xs text-white/40 ml-2">personality match</span>
       </div>
 
-      <h3 className="font-display font-bold text-2xl neon-pink mb-2">{fellowData.name}</h3>
+      <h3 className="font-display font-bold text-2xl neon-pink mb-2">{staticData.name}</h3>
       <p className="text-sm text-white/50 max-w-md mx-auto mb-6 leading-relaxed">
-        {fellowData.bio}
+        {displayBio}
       </p>
 
-      <SocialLinks socials={fellowData.socials} />
+      <SocialLinks socials={displaySocials} />
     </div>
   )
 }
@@ -89,11 +95,18 @@ interface StoredResult {
   fellow_id: string | null
 }
 
+interface FellowProfile {
+  bio?: string
+  socials?: Record<string, string>
+  avatar_url?: string
+}
+
 interface FellowWithScores {
   id: string
   name: string
   photo_url: string
   scores: PersonalityScores
+  profile?: FellowProfile | null
 }
 
 export default function ResultsPage({ params }: { params: Promise<{ id: string }> }) {
@@ -112,7 +125,12 @@ export default function ResultsPage({ params }: { params: Promise<{ id: string }
     fetch('/api/fellows')
       .then(res => res.json())
       .then(data => {
-        if (data.fellows) setFellowScores(data.fellows)
+        if (data.fellows) {
+          setFellowScores(data.fellows.map((f: { id: string; name: string; scores: PersonalityScores; profile?: FellowProfile | null }) => ({
+            ...f,
+            photo_url: f.profile?.avatar_url || FELLOWS.find(sf => sf.id === f.id)?.photo_url || '',
+          })))
+        }
       })
       .catch(() => {})
 
@@ -141,11 +159,11 @@ export default function ResultsPage({ params }: { params: Promise<{ id: string }
     ? findClosestFellow(result.scores, fellowScores)
     : null
   const matchedFellow = match
-    ? { ...FELLOWS.find(f => f.id === match.id)!, scores: fellowScores.find(f => f.id === match.id)!.scores }
+    ? fellowScores.find(f => f.id === match.id) || null
     : null
   const matchPercent = match ? similarityPercent(match.distance) : null
 
-  const compareTarget = selectedFellow || (matchedFellow ? { ...matchedFellow } : null)
+  const compareTarget = selectedFellow || matchedFellow
 
   return (
     <div className="min-h-screen py-20">

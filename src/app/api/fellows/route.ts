@@ -7,22 +7,35 @@ const supabase = createClient(
 )
 
 export async function GET() {
-  const { data, error } = await supabase
-    .from('persona_results')
-    .select('fellow_id, scores, display_name')
-    .eq('is_fellow', true)
-    .not('fellow_id', 'is', null)
+  const [resultsRes, profilesRes] = await Promise.all([
+    supabase
+      .from('persona_results')
+      .select('fellow_id, scores, display_name')
+      .eq('is_fellow', true)
+      .not('fellow_id', 'is', null),
+    supabase
+      .from('fellow_profiles')
+      .select('*'),
+  ])
 
-  if (error) {
-    console.error('Failed to fetch fellow scores:', error)
-    return NextResponse.json({ fellows: [] })
-  }
+  const results = resultsRes.data || []
+  const profiles = profilesRes.data || []
 
-  const fellows = (data || []).map(row => ({
-    id: row.fellow_id,
-    name: row.display_name,
-    scores: row.scores,
-  }))
+  const profileMap = new Map(profiles.map(p => [p.fellow_id, p]))
+
+  const fellows = results.map(row => {
+    const profile = profileMap.get(row.fellow_id)
+    return {
+      id: row.fellow_id,
+      name: row.display_name,
+      scores: row.scores,
+      profile: profile ? {
+        bio: profile.bio,
+        socials: profile.socials,
+        avatar_url: profile.avatar_url,
+      } : null,
+    }
+  })
 
   return NextResponse.json({ fellows })
 }

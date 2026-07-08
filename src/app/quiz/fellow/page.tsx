@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useCallback, useRef } from 'react'
+import { useState, useCallback, useRef, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { FELLOWS } from '@/lib/fellows'
 import { FELLOW_QUESTIONS } from '@/lib/questions'
@@ -8,7 +8,17 @@ import { calculateScores } from '@/lib/scoring'
 import QuizCard from '@/components/QuizCard'
 import type { Fellow, Question } from '@/lib/types'
 
-type Stage = 'select' | 'photo' | 'quiz' | 'submitting'
+const SOCIAL_FIELDS = [
+  { key: 'twitter', label: 'X / Twitter', placeholder: 'handle (without @)' },
+  { key: 'instagram', label: 'Instagram', placeholder: 'handle' },
+  { key: 'youtube', label: 'YouTube', placeholder: 'channel URL' },
+  { key: 'tiktok', label: 'TikTok', placeholder: 'handle' },
+  { key: 'website', label: 'Website', placeholder: 'https://...' },
+  { key: 'substack', label: 'Substack', placeholder: 'URL' },
+  { key: 'bandcamp', label: 'Bandcamp / Music', placeholder: 'URL' },
+]
+
+type Stage = 'select' | 'profile' | 'quiz' | 'submitting'
 
 export default function FellowQuizPage() {
   const router = useRouter()
@@ -24,6 +34,11 @@ export default function FellowQuizPage() {
     setFailedImgs(prev => new Set(prev).add(id))
   }, [])
 
+  // Profile fields
+  const [bio, setBio] = useState('')
+  const [socials, setSocials] = useState<Record<string, string>>({})
+  const [profileLoaded, setProfileLoaded] = useState(false)
+
   // Quiz state
   const questions: Question[] = FELLOW_QUESTIONS
   const [currentIndex, setCurrentIndex] = useState(0)
@@ -35,27 +50,91 @@ export default function FellowQuizPage() {
   const allAnswered = questions.every(q => answers[q.id] != null)
   const isLastQuestion = currentIndex === questions.length - 1
 
+  // Load existing profile from DB when fellow is selected
+  useEffect(() => {
+    if (!selectedFellow || profileLoaded) return
+
+    // Pre-fill from static data
+    setBio(selectedFellow.bio || '')
+    const staticSocials: Record<string, string> = {}
+    for (const [k, v] of Object.entries(selectedFellow.socials)) {
+      if (v) staticSocials[k] = v
+    }
+    setSocials(staticSocials)
+
+    // Then check if they have a saved profile that overrides
+    fetch(`/api/fellow-profile?id=${selectedFellow.id}`)
+      .then(res => res.json())
+      .then(data => {
+        if (data.profile) {
+          if (data.profile.bio) setBio(data.profile.bio)
+          if (data.profile.socials) {
+            setSocials(prev => ({ ...prev, ...data.profile.socials }))
+          }
+          if (data.profile.avatar_url) setAvatarPreview(data.profile.avatar_url)
+        }
+        setProfileLoaded(true)
+      })
+      .catch(() => setProfileLoaded(true))
+  }, [selectedFellow, profileLoaded])
+
+  function updateSocial(key: string, value: string) {
+    setSocials(prev => {
+      const next = { ...prev }
+      if (value.trim()) {
+        next[key] = value.trim()
+      } else {
+        delete next[key]
+      }
+      return next
+    })
+  }
+
   function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0]
     if (!file) return
     setAvatarFile(file)
-    const url = URL.createObjectURL(file)
-    setAvatarPreview(url)
+    setAvatarPreview(URL.createObjectURL(file))
   }
 
-  async function handlePhotoConfirm() {
-    if (avatarFile && selectedFellow) {
-      setUploading(true)
+  async function handleProfileConfirm() {
+    if (!selectedFellow) return
+    setUploading(true)
+
+    let avatarUrl: string | undefined
+
+    // Upload photo if changed
+    if (avatarFile) {
       const formData = new FormData()
       formData.append('file', avatarFile)
       formData.append('fellow_id', selectedFellow.id)
       try {
-        await fetch('/api/upload-avatar', { method: 'POST', body: formData })
+        const res = await fetch('/api/upload-avatar', { method: 'POST', body: formData })
+        const data = await res.json()
+        if (data.url) avatarUrl = data.url
       } catch {
-        // continue anyway, photo upload is optional
+        // continue anyway
       }
-      setUploading(false)
     }
+
+    // Save profile
+    try {
+      await fetch('/api/fellow-profile', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          fellow_id: selectedFellow.id,
+          display_name: selectedFellow.name,
+          bio,
+          socials,
+          avatar_url: avatarUrl || avatarPreview || selectedFellow.photo_url || null,
+        }),
+      })
+    } catch {
+      // continue anyway
+    }
+
+    setUploading(false)
     setStage('quiz')
   }
 
@@ -126,7 +205,7 @@ export default function FellowQuizPage() {
             who are you?
           </h1>
           <p className="text-sm text-white/40 max-w-md mx-auto">
-            Select yourself from the grid below. You&apos;ll take the extended quiz ({FELLOW_QUESTIONS.length} questions) so we can map your personality.
+            Select yourself from the grid below. You&apos;ll review your profile, then take the extended quiz ({FELLOW_QUESTIONS.length} questions).
           </p>
         </div>
 
@@ -136,7 +215,8 @@ export default function FellowQuizPage() {
               key={f.id}
               onClick={() => {
                 setSelectedFellow(f)
-                setStage('photo')
+                setProfileLoaded(false)
+                setStage('profile')
               }}
               className="glass-card p-4 text-center group cursor-pointer text-left hover:!border-neon-cyan/40"
             >
@@ -157,34 +237,46 @@ export default function FellowQuizPage() {
     )
   }
 
-  // ── Stage: Photo review/upload ──
-  if (stage === 'photo' && selectedFellow) {
+  // ── Stage: Profile review + edit ──
+  if (stage === 'profile' && selectedFellow) {
     const displayPhoto = avatarPreview || (selectedFellow.photo_url && !failedImgs.has(selectedFellow.id) ? selectedFellow.photo_url : null)
 
     return (
-      <div className="min-h-[80vh] flex items-center justify-center">
-        <div className="glass-card p-8 sm:p-12 max-w-md w-full text-center fade-in-up">
-          <h2 className="font-display font-bold text-2xl neon-cyan mb-2">
+      <div className="min-h-[80vh] flex items-center justify-center py-20">
+        <div className="glass-card p-8 sm:p-10 max-w-lg w-full fade-in-up">
+          <h2 className="font-display font-bold text-2xl neon-cyan mb-1">
             hey, {selectedFellow.name}
           </h2>
-          <p className="text-sm text-white/40 mb-8">
-            This is your current photo. You can upload a new one or keep it.
+          <p className="text-xs text-white/40 mb-8">
+            review your profile before taking the quiz. edit anything you want // this is what people see when they match with you.
           </p>
 
-          <div className="w-32 h-32 mx-auto rounded-xl overflow-hidden border-2 border-neon-cyan/30 bg-white/5 mb-6 relative group">
-            {displayPhoto ? (
-              <img src={displayPhoto} alt={selectedFellow.name} className="w-full h-full object-cover" />
-            ) : (
-              <div className="w-full h-full flex items-center justify-center text-4xl font-bold text-white/15 font-mono">
-                {selectedFellow.name.charAt(0)}
-              </div>
-            )}
-            <button
-              onClick={() => fileInputRef.current?.click()}
-              className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center text-xs font-mono text-white/70 uppercase tracking-wider"
-            >
-              {displayPhoto ? 'change' : 'upload'}
-            </button>
+          {/* Photo */}
+          <div className="flex items-center gap-5 mb-8">
+            <div className="w-20 h-20 rounded-xl overflow-hidden border-2 border-neon-cyan/30 bg-white/5 relative group shrink-0">
+              {displayPhoto ? (
+                <img src={displayPhoto} alt={selectedFellow.name} className="w-full h-full object-cover" />
+              ) : (
+                <div className="w-full h-full flex items-center justify-center text-2xl font-bold text-white/15 font-mono">
+                  {selectedFellow.name.charAt(0)}
+                </div>
+              )}
+              <button
+                onClick={() => fileInputRef.current?.click()}
+                className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center text-[10px] font-mono text-white/70 uppercase tracking-wider"
+              >
+                change
+              </button>
+            </div>
+            <div className="flex-1">
+              <div className="font-bold text-sm mb-1">{selectedFellow.name}</div>
+              <button
+                onClick={() => fileInputRef.current?.click()}
+                className="text-[10px] font-mono uppercase tracking-wider text-neon-pink/60 hover:text-neon-pink transition-colors"
+              >
+                {displayPhoto ? 'upload different photo' : 'upload a photo'}
+              </button>
+            </div>
           </div>
 
           <input
@@ -195,29 +287,63 @@ export default function FellowQuizPage() {
             className="hidden"
           />
 
-          <div className="flex flex-col gap-3">
-            <button
-              onClick={() => fileInputRef.current?.click()}
-              className="text-xs font-mono uppercase tracking-wider text-neon-pink/60 hover:text-neon-pink transition-colors"
-            >
-              {displayPhoto ? 'upload a different photo' : 'upload a photo'}
-            </button>
-
-            <button
-              onClick={handlePhotoConfirm}
-              disabled={uploading}
-              className="glow-btn w-full !block text-center mt-4"
-            >
-              {uploading ? 'Uploading...' : avatarFile ? 'Save & Start Quiz' : 'Start Quiz'}
-            </button>
-
-            <button
-              onClick={() => { setStage('select'); setAvatarPreview(null); setAvatarFile(null) }}
-              className="text-xs font-mono text-white/20 hover:text-white/40 transition-colors"
-            >
-              ← that&apos;s not me
-            </button>
+          {/* Bio */}
+          <div className="mb-6">
+            <label className="block text-[10px] font-mono uppercase tracking-[0.2em] text-white/30 mb-2">
+              your intro
+            </label>
+            <textarea
+              value={bio}
+              onChange={e => setBio(e.target.value)}
+              placeholder="a short bio that shows up on your profile"
+              rows={3}
+              className="w-full px-4 py-3 bg-white/[0.04] border border-white/10 rounded-xl text-white text-sm font-light placeholder:text-white/20 focus:outline-none focus:border-neon-cyan/50 focus:shadow-[0_0_15px_rgba(31,196,255,0.1)] transition-all resize-none"
+            />
           </div>
+
+          {/* Socials */}
+          <div className="mb-8">
+            <label className="block text-[10px] font-mono uppercase tracking-[0.2em] text-white/30 mb-3">
+              socials
+            </label>
+            <div className="grid gap-3">
+              {SOCIAL_FIELDS.map(field => (
+                <div key={field.key} className="flex items-center gap-3">
+                  <span className="text-xs font-mono text-white/40 w-20 shrink-0 text-right">
+                    {field.label}
+                  </span>
+                  <input
+                    type="text"
+                    value={socials[field.key] || ''}
+                    onChange={e => updateSocial(field.key, e.target.value)}
+                    placeholder={field.placeholder}
+                    className="flex-1 px-3 py-2 bg-white/[0.04] border border-white/10 rounded-lg text-white text-xs font-light placeholder:text-white/15 focus:outline-none focus:border-neon-cyan/50 transition-all"
+                  />
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Actions */}
+          <button
+            onClick={handleProfileConfirm}
+            disabled={uploading}
+            className="glow-btn w-full !block text-center"
+          >
+            {uploading ? 'Saving...' : 'Save & Start Quiz'}
+          </button>
+
+          <button
+            onClick={() => {
+              setStage('select')
+              setAvatarPreview(null)
+              setAvatarFile(null)
+              setProfileLoaded(false)
+            }}
+            className="text-xs font-mono text-white/20 hover:text-white/40 transition-colors mt-4 w-full text-center block"
+          >
+            ← that&apos;s not me
+          </button>
         </div>
       </div>
     )
