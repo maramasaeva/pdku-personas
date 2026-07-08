@@ -1,20 +1,17 @@
 'use client'
 
 import { useState, useCallback, useEffect } from 'react'
-import { useRouter, useSearchParams } from 'next/navigation'
-import { Suspense } from 'react'
-import { PUBLIC_QUESTIONS, FELLOW_QUESTIONS } from '@/lib/questions'
+import { useRouter } from 'next/navigation'
+import { PUBLIC_QUESTIONS } from '@/lib/questions'
 import { calculateScores } from '@/lib/scoring'
 import QuizCard from '@/components/QuizCard'
 import type { Question } from '@/lib/types'
 
-function QuizInner() {
+export default function QuizPage() {
   const router = useRouter()
-  const searchParams = useSearchParams()
-  const isFellow = searchParams.get('fellow') !== null
-  const fellowId = searchParams.get('fellow')
 
-  const questions: Question[] = isFellow ? FELLOW_QUESTIONS : PUBLIC_QUESTIONS
+  const [questions, setQuestions] = useState<Question[]>(PUBLIC_QUESTIONS)
+  const [loading, setLoading] = useState(true)
   const [currentIndex, setCurrentIndex] = useState(0)
   const [answers, setAnswers] = useState<Record<string, number>>({})
   const [animClass, setAnimClass] = useState('quiz-card-enter')
@@ -22,12 +19,21 @@ function QuizInner() {
   const [showNamePrompt, setShowNamePrompt] = useState(true)
   const [submitting, setSubmitting] = useState(false)
 
+  useEffect(() => {
+    fetch('/api/questions')
+      .then(res => res.json())
+      .then(data => {
+        if (data.questions?.length > 0) setQuestions(data.questions)
+      })
+      .catch(() => {})
+      .finally(() => setLoading(false))
+  }, [])
+
   const currentQuestion = questions[currentIndex]
-  const progress = ((currentIndex) / questions.length) * 100
+  const progress = (currentIndex / questions.length) * 100
 
   const goToNext = useCallback((questionId: string, value: number) => {
     setAnswers(prev => ({ ...prev, [questionId]: value }))
-
     if (currentIndex < questions.length - 1) {
       setAnimClass('quiz-card-exit')
       setTimeout(() => {
@@ -49,7 +55,7 @@ function QuizInner() {
 
   useEffect(() => {
     function handleKey(e: KeyboardEvent) {
-      if (!showNamePrompt) {
+      if (!showNamePrompt && currentQuestion) {
         if (e.key >= '1' && e.key <= '5') {
           goToNext(currentQuestion.id, parseInt(e.key))
         }
@@ -77,20 +83,20 @@ function QuizInner() {
           display_name: displayName || 'Anonymous',
           scores,
           answers,
-          is_fellow: isFellow,
-          fellow_id: fellowId,
+          is_fellow: false,
+          fellow_id: null,
         }),
       })
     } catch {
-      // save locally as fallback
+      // fallback
     }
 
     localStorage.setItem(`pdku-result-${resultId}`, JSON.stringify({
       id: resultId,
       display_name: displayName || 'Anonymous',
       scores,
-      is_fellow: isFellow,
-      fellow_id: fellowId,
+      is_fellow: false,
+      fellow_id: null,
     }))
 
     router.push(`/results/${resultId}`)
@@ -99,18 +105,23 @@ function QuizInner() {
   const allAnswered = questions.every(q => answers[q.id] != null)
   const isLastQuestion = currentIndex === questions.length - 1
 
+  if (loading) {
+    return (
+      <div className="min-h-[80vh] flex items-center justify-center">
+        <div className="font-mono text-sm text-white/30">loading quiz...</div>
+      </div>
+    )
+  }
+
   if (showNamePrompt) {
     return (
       <div className="min-h-[80vh] flex items-center justify-center">
         <div className="glass-card p-8 sm:p-12 max-w-md w-full fade-in-up" style={{ animationDelay: '0.1s' }}>
           <h2 className="font-display font-bold text-3xl neon-cyan mb-2">
-            {isFellow ? 'fellow check-in' : 'before we start'}
+            before we start
           </h2>
           <p className="text-sm text-white/40 mb-8">
-            {isFellow
-              ? `You're taking the extended quiz (${FELLOW_QUESTIONS.length} questions). Your results will be visible to other quiz takers.`
-              : `${PUBLIC_QUESTIONS.length} questions. Takes about 5 minutes. You can use keyboard shortcuts (1-5) to go fast.`
-            }
+            {questions.length} questions. Takes about 5 minutes. You can use keyboard shortcuts (1-5) to go fast.
           </p>
 
           <label className="block text-xs font-mono uppercase tracking-wider text-white/30 mb-2">
@@ -186,17 +197,5 @@ function QuizInner() {
         press 1-5 to answer // ← to go back
       </p>
     </div>
-  )
-}
-
-export default function QuizPage() {
-  return (
-    <Suspense fallback={
-      <div className="min-h-[80vh] flex items-center justify-center">
-        <div className="font-mono text-sm text-white/30">loading quiz...</div>
-      </div>
-    }>
-      <QuizInner />
-    </Suspense>
   )
 }

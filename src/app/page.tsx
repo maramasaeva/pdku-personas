@@ -37,9 +37,14 @@ export default function Home() {
           chaos ↔ order
         </div>
 
-        <Link href="/quiz" className="glow-btn text-lg !py-5 !px-14">
-          Take the Quiz
-        </Link>
+        <div className="flex gap-5 flex-wrap justify-center">
+          <Link href="/quiz" className="glow-btn text-lg !py-5 !px-14">
+            Take the Quiz
+          </Link>
+          <Link href="/quiz/fellow" className="glow-btn glow-btn-pink text-lg !py-5 !px-14">
+            I&apos;m a Fellow
+          </Link>
+        </div>
       </section>
 
       <div className="neon-divider" />
@@ -113,9 +118,14 @@ export default function Home() {
         <h2 className="font-display font-bold text-[clamp(2.5rem,6vw,5rem)] leading-tight neon-pink mb-8">
           who are you?
         </h2>
-        <Link href="/quiz" className="glow-btn text-lg !py-5 !px-14">
-          Find Out
-        </Link>
+        <div className="flex gap-5 flex-wrap justify-center">
+          <Link href="/quiz" className="glow-btn text-lg !py-5 !px-14">
+            Find Out
+          </Link>
+          <Link href="/quiz/fellow" className="glow-btn glow-btn-pink">
+            I&apos;m a PDKU Fellow
+          </Link>
+        </div>
       </section>
     </div>
   )

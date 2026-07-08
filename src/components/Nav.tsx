@@ -10,7 +10,8 @@ export default function Nav() {
 
   const links = [
     { href: '/', label: 'Home' },
-    { href: '/quiz', label: 'Take the Quiz' },
+    { href: '/quiz', label: 'Quiz' },
+    { href: '/quiz/fellow', label: 'Fellow Quiz' },
     { href: '/fellows', label: 'Fellows' },
   ]
 
