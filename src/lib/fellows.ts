@@ -53,4 +53,5 @@ export const FELLOWS: Fellow[] = [
   { id: 'p-51', name: 'Maëlle', bio: 'Franco-American filmmaker. La Fémis grad. Animation, AI generation.', photo_url: '/avatars/maelle.jpg', socials: {} },
   { id: 'p-52', name: 'Johannes Rolshausen', bio: 'Saarbrücken, Germany. Actor, Gen-AI security engineer.', photo_url: '', socials: {} },
   { id: 'p-53', name: 'Net Loss', bio: 'YouTube creator.', photo_url: '', socials: { youtube: 'https://youtube.com/@net-loss' } },
+  { id: 'p-54', name: 'Keltan', bio: '', photo_url: '', socials: { twitter: 'Actuallykeltan' } },
 ]
