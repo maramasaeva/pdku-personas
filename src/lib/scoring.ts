@@ -39,23 +39,28 @@ export function findClosestFellow(
   scores: PersonalityScores,
   fellows: Array<{ id: string; scores: PersonalityScores }>
 ): { id: string; distance: number } | null {
-  if (fellows.length === 0) return null
+  const top = findTopFellows(scores, fellows, 1)
+  return top.length > 0 ? top[0] : null
+}
 
-  let closest = { id: '', distance: Infinity }
+export function findTopFellows(
+  scores: PersonalityScores,
+  fellows: Array<{ id: string; scores: PersonalityScores }>,
+  count: number
+): Array<{ id: string; distance: number }> {
+  if (fellows.length === 0) return []
 
-  for (const fellow of fellows) {
+  const ranked = fellows.map(fellow => {
     let sum = 0
     for (const axis of AXES) {
       const diff = scores[axis] - fellow.scores[axis]
       sum += diff * diff
     }
-    const distance = Math.sqrt(sum)
-    if (distance < closest.distance) {
-      closest = { id: fellow.id, distance }
-    }
-  }
+    return { id: fellow.id, distance: Math.sqrt(sum) }
+  })
 
-  return closest
+  ranked.sort((a, b) => a.distance - b.distance)
+  return ranked.slice(0, count)
 }
 
 export function similarityPercent(distance: number): number {

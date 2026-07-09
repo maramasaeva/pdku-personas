@@ -5,7 +5,7 @@ import Link from 'next/link'
 import RadarChart from '@/components/RadarChart'
 import { PersonalityScores, Axis, AXIS_LABELS, AXIS_COLORS } from '@/lib/types'
 import { FELLOWS } from '@/lib/fellows'
-import { findClosestFellow, similarityPercent } from '@/lib/scoring'
+import { findTopFellows, similarityPercent } from '@/lib/scoring'
 
 const AXES: Axis[] = [
   'openness', 'conscientiousness', 'extraversion',
@@ -87,6 +87,42 @@ function MatchCard({ fellow, matchPercent }: { fellow: FellowWithScores; matchPe
   )
 }
 
+function MiniMatchCard({ fellow, matchPercent, rank }: { fellow: FellowWithScores; matchPercent: number; rank: number }) {
+  const staticData = FELLOWS.find(f => f.id === fellow.id)
+  if (!staticData) return null
+
+  const photo = fellow.profile?.avatar_url || staticData.photo_url
+  const displayBio = fellow.profile?.bio || staticData.bio
+  const displaySocials = fellow.profile?.socials
+    ? { ...staticData.socials, ...fellow.profile.socials }
+    : staticData.socials
+
+  return (
+    <div className="glass-card p-5 sm:p-6 flex items-center gap-5" style={{ borderColor: 'rgba(255,31,184,0.08)' }}>
+      <div className="shrink-0 w-14 h-14 rounded-lg overflow-hidden border-2 border-neon-pink/20 bg-white/5">
+        {photo ? (
+          <img src={photo} alt={staticData.name} className="w-full h-full object-cover" />
+        ) : (
+          <div className="w-full h-full flex items-center justify-center text-lg font-bold text-white/15 font-mono">
+            {staticData.name.charAt(0)}
+          </div>
+        )}
+      </div>
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center gap-3 mb-1">
+          <span className="font-mono text-[10px] text-white/20">#{rank}</span>
+          <h3 className="font-display font-bold text-base neon-pink truncate">{staticData.name}</h3>
+          <span className="shrink-0 font-mono text-sm font-bold text-neon-pink/70">{matchPercent}%</span>
+        </div>
+        {displayBio && (
+          <p className="text-xs text-white/35 truncate mb-2">{displayBio}</p>
+        )}
+        <SocialLinks socials={displaySocials} />
+      </div>
+    </div>
+  )
+}
+
 interface StoredResult {
   id: string
   display_name: string
@@ -155,15 +191,18 @@ export default function ResultsPage({ params }: { params: Promise<{ id: string }
     )
   }
 
-  const match = fellowScores.length > 0
-    ? findClosestFellow(result.scores, fellowScores)
-    : null
-  const matchedFellow = match
-    ? fellowScores.find(f => f.id === match.id) || null
-    : null
-  const matchPercent = match ? similarityPercent(match.distance) : null
+  const topMatches = fellowScores.length > 0
+    ? findTopFellows(result.scores, fellowScores, 3)
+    : []
+  const topFellows = topMatches
+    .map(m => {
+      const fellow = fellowScores.find(f => f.id === m.id)
+      return fellow ? { fellow, matchPercent: similarityPercent(m.distance) } : null
+    })
+    .filter(Boolean) as Array<{ fellow: FellowWithScores; matchPercent: number }>
 
-  const compareTarget = selectedFellow || matchedFellow
+  const primaryMatch = topFellows[0]?.fellow || null
+  const compareTarget = selectedFellow || primaryMatch
 
   return (
     <div className="min-h-screen py-20">
@@ -228,15 +267,25 @@ export default function ResultsPage({ params }: { params: Promise<{ id: string }
         </div>
       </div>
 
-      {/* Fellow match */}
-      {matchedFellow && matchPercent != null && (
+      {/* Top 3 matches */}
+      {topFellows.length > 0 && (
         <div className="max-w-2xl mx-auto mb-16 fade-in-up" style={{ animationDelay: '0.4s' }}>
           <div className="neon-divider mb-12" />
           <h2 className="font-display font-bold text-2xl neon-pink mb-8 text-center">
-            your closest match
+            your closest matches
           </h2>
 
-          <MatchCard fellow={matchedFellow} matchPercent={matchPercent} />
+          <div className="space-y-6">
+            {topFellows.map(({ fellow, matchPercent }, i) => (
+              <div key={fellow.id}>
+                {i === 0 ? (
+                  <MatchCard fellow={fellow} matchPercent={matchPercent} />
+                ) : (
+                  <MiniMatchCard fellow={fellow} matchPercent={matchPercent} rank={i + 1} />
+                )}
+              </div>
+            ))}
+          </div>
         </div>
       )}
 
