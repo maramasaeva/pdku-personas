@@ -4,7 +4,7 @@ import { useState, useCallback, useRef, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { FELLOWS } from '@/lib/fellows'
 import { FELLOW_QUESTIONS } from '@/lib/questions'
-import { calculateScores } from '@/lib/scoring'
+import { calculateScores, findTopFellows, similarityPercent } from '@/lib/scoring'
 import RadarChart from '@/components/RadarChart'
 import QuizCard from '@/components/QuizCard'
 import type { Fellow, Question, PersonalityScores, Axis } from '@/lib/types'
@@ -59,6 +59,8 @@ export default function FellowQuizPage() {
 
   // Existing result
   const [existingResult, setExistingResult] = useState<ExistingResult | null>(null)
+  const [allFellowScores, setAllFellowScores] = useState<Array<{ id: string; name: string; scores: PersonalityScores }>>([])
+
 
   // Quiz state
   const questions: Question[] = FELLOW_QUESTIONS
@@ -129,13 +131,18 @@ export default function FellowQuizPage() {
       })
       .catch(() => setProfileLoaded(true))
 
-    // Check for existing quiz result
+    // Check for existing quiz result + load all fellow scores
     fetch(`/api/fellows`)
       .then(res => res.json())
       .then(data => {
-        const existing = data.fellows?.find((f: { id: string }) => f.id === selectedFellow.id)
-        if (existing?.scores) {
-          setExistingResult({ id: existing.id, scores: existing.scores, created_at: '' })
+        if (data.fellows) {
+          setAllFellowScores(data.fellows.map((f: { id: string; name: string; scores: PersonalityScores }) => ({
+            id: f.id, name: f.name, scores: f.scores,
+          })))
+          const existing = data.fellows.find((f: { id: string }) => f.id === selectedFellow.id)
+          if (existing?.scores) {
+            setExistingResult({ id: existing.id, scores: existing.scores, created_at: '' })
+          }
         }
       })
       .catch(() => {})
@@ -460,6 +467,14 @@ export default function FellowQuizPage() {
 
   // ── Stage: Existing result ──
   if (stage === 'existing' && existingResult && selectedFellow) {
+    const otherFellows = allFellowScores.filter(f => f.id !== selectedFellow.id)
+    const topMatches = findTopFellows(existingResult.scores, otherFellows, 3)
+    const matchList = topMatches.map(m => {
+      const fellow = allFellowScores.find(f => f.id === m.id)
+      const staticData = FELLOWS.find(f => f.id === m.id)
+      return fellow && staticData ? { name: fellow.name || staticData.name, id: m.id, percent: similarityPercent(m.distance), photo: staticData.photo_url } : null
+    }).filter(Boolean) as Array<{ name: string; id: string; percent: number; photo: string }>
+
     return (
       <div className="min-h-[80vh] flex items-center justify-center py-20">
         <div className="max-w-lg w-full fade-in-up">
@@ -491,6 +506,36 @@ export default function FellowQuizPage() {
               })}
             </div>
           </div>
+
+          {matchList.length > 0 && (
+            <div className="mb-8">
+              <h3 className="font-display font-bold text-xl neon-pink mb-4 text-center">
+                your closest matches
+              </h3>
+              <div className="space-y-3">
+                {matchList.map((m, i) => (
+                  <div key={m.id} className="glass-card p-4 flex items-center gap-4" style={{ borderColor: 'rgba(255,31,184,0.08)' }}>
+                    <div className="shrink-0 w-10 h-10 rounded-lg overflow-hidden border-2 border-neon-pink/20 bg-white/5">
+                      {m.photo ? (
+                        <img src={m.photo} alt={m.name} className="w-full h-full object-cover" />
+                      ) : (
+                        <div className="w-full h-full flex items-center justify-center text-sm font-bold text-white/15 font-mono">
+                          {m.name.charAt(0)}
+                        </div>
+                      )}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2">
+                        <span className="font-mono text-[10px] text-white/20">#{i + 1}</span>
+                        <span className="font-display font-bold text-sm neon-pink truncate">{m.name}</span>
+                      </div>
+                    </div>
+                    <span className="shrink-0 font-mono text-sm font-bold text-neon-pink/70">{m.percent}%</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
 
           <div className="flex flex-col gap-3 items-center">
             <button
