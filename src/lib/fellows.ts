@@ -17,7 +17,6 @@ export const FELLOWS: Fellow[] = [
   { id: 'p-13', name: 'Isabel', bio: 'Australia/Singapore. Creative technologist. Built napole0n.ai.', photo_url: '/avatars/isabel.jpg', socials: { instagram: 'artificial.isabel' } },
   { id: 'p-14', name: 'Jessiah', bio: 'Mendocino, CA. Former English lit teacher, now data science. Life coach.', photo_url: '/avatars/jessiah.jpg', socials: {} },
   { id: 'p-15', name: 'Avisha', bio: 'NY. Signal processing + AI. Runs @distilledscience.', photo_url: '/avatars/avisha.jpg', socials: { instagram: 'distilledscience' } },
-  { id: 'p-16', name: 'Francesca (Pixel Surfer)', bio: 'San Diego. Ex-Microsoft SWE, musician, surfer/surfboard shaper.', photo_url: '/avatars/francesca.jpg', socials: {} },
   { id: 'p-17', name: 'Eliana', bio: 'USC acting alum, West LA. Singer, Ableton user, stand-up comedian.', photo_url: '/avatars/eliana.jpg', socials: { twitter: 'yellieyana' } },
   { id: 'p-18', name: 'Elwyn', bio: 'Florida. Former comedy video creator. Mindful content.', photo_url: '', socials: {} },
   { id: 'p-19', name: 'Justin Kuiper', bio: 'Sacramento. Scriptwriter for Game Theory (~1B views). Substack + YouTube.', photo_url: '/avatars/justin.png', socials: {} },
