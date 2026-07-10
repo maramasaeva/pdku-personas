@@ -115,8 +115,7 @@ export default function FellowQuizPage() {
     }
     setSocials(staticSocials)
 
-    // Check saved profile
-    fetch(`/api/fellow-profile?id=${selectedFellow.id}`)
+    const profilePromise = fetch(`/api/fellow-profile?id=${selectedFellow.id}`)
       .then(res => res.json())
       .then(data => {
         if (data.profile) {
@@ -131,8 +130,7 @@ export default function FellowQuizPage() {
       })
       .catch(() => setProfileLoaded(true))
 
-    // Check for existing quiz result + load all fellow scores
-    fetch(`/api/fellows`)
+    const fellowsPromise = fetch(`/api/fellows`)
       .then(res => res.json())
       .then(data => {
         if (data.fellows) {
@@ -142,10 +140,16 @@ export default function FellowQuizPage() {
           const existing = data.fellows.find((f: { id: string }) => f.id === selectedFellow.id)
           if (existing?.scores) {
             setExistingResult({ id: existing.id, scores: existing.scores, created_at: '' })
+            return true
           }
         }
+        return false
       })
-      .catch(() => {})
+      .catch(() => false)
+
+    Promise.all([profilePromise, fellowsPromise]).then(([, hasExisting]) => {
+      if (hasExisting) setStage('existing')
+    })
   }, [selectedFellow, profileLoaded])
 
   function updateSocial(key: string, value: string) {
@@ -342,6 +346,14 @@ export default function FellowQuizPage() {
 
   // ── Stage: Profile review + edit ──
   if (stage === 'profile' && selectedFellow) {
+    if (!profileLoaded) {
+      return (
+        <div className="min-h-[80vh] flex items-center justify-center">
+          <div className="font-mono text-sm text-white/30">loading profile...</div>
+        </div>
+      )
+    }
+
     const displayPhoto = avatarPreview || (selectedFellow.photo_url && !failedImgs.has(selectedFellow.id) ? selectedFellow.photo_url : null)
 
     return (
